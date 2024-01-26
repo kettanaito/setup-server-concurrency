@@ -1,7 +1,6 @@
 import { setupServer, request } from "./setupServer";
 
 const server = setupServer([]);
-// server.use(["GET", "/two", 2])
 
 beforeAll(() => {
   server.listen()
@@ -21,6 +20,6 @@ it('relies on the override in the test', async () => {
   expect(await request("GET", "/two")).toEqual(202)
 })
 
-it('relies on the override from beforeAll', async () => {
-  expect(await request("GET", "/two")).toEqual(2)
+it('cannot access beforeAll override since it has been reset', async () => {
+  expect(await request("GET", "/two")).toEqual(null)
 })

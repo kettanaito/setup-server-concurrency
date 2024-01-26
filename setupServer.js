@@ -7,58 +7,47 @@ export async function request(method, path) {
 const store = new AsyncLocalStorage();
 
 export function setupServer(initialHandlers) {
-  let _getHandlers = () => {
-    const context = store.getStore();
-    console.log({ context })
-    return context?.handlers || initialHandlers;
-  };
+  const rootContext = { initialHandlers, handlers: [] }
 
-  const trace = new Map()
-  function getHandlers(id) {
-    console.log('getHandlers()', id)
-
-    const fromCurrent = trace.get(id)
-
-    // Find the lowest ID key in "trace" Map
-    // and return its value.
-    // This is the closest ancestor.
-    const ids = Array.from(trace.keys())
-    const lowestId = Math.min(...ids)
-    const fromAncestor = trace.get(lowestId)
-
-    console.log('getHandlers()', { for: id, lowestId, fromCurrent, fromAncestor })
-
-    return fromCurrent || fromAncestor || initialHandlers
+  function getContext() {
+    return store.getStore() || rootContext
   }
 
   return {
+    boundary(callback){
+      return (...args) => {
+        const context = getContext()
+        // Respect request handlers added before this boundary
+        // has been established.
+        const initialHandlers = [...context.handlers, ...context.initialHandlers]
+        return store.run({ initialHandlers, handlers: [] }, callback, args)
+      }
+    },
     listen() {
       request = new Proxy(request, {
-        async apply(target, context, args) {
+        async apply(target, thisArg, args) {
           const [method, path] = args;
+          console.log(method, path)
 
-          const handlers = _getHandlers(executionAsyncId())
-
-          console.log(method, path, handlers)
+          const context = getContext()
+          const handlers = [
+            ...context.handlers,
+            ...context.initialHandlers
+          ]
 
           const mockedResponse = await handleRequest(
             { method, path },
             handlers,
           );
-          return mockedResponse || Reflect.apply(target, context, args);
+          return mockedResponse || Reflect.apply(target, thisArg, args);
         },
       });
     },
     reset() {
-      store.enterWith({ handlers: initialHandlers });
+      getContext().handlers = []
     },
     use(...runtimeHandlers) {
-      console.log('use()', executionAsyncId(), triggerAsyncId(), runtimeHandlers)
-
-      const currentHandlers = _getHandlers(executionAsyncId());
-      const nextHandlers = [...runtimeHandlers, ...currentHandlers];
-
-      store.enterWith({ handlers: nextHandlers });
+      getContext().handlers.unshift(...runtimeHandlers);
     },
   }
 }
