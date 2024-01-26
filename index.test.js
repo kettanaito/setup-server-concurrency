@@ -1,65 +1,22 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
-async function request(method, path) {
-  return null;
-}
-
-const store = new AsyncLocalStorage();
-
-function setupServer(initialHandlers) {
-  let getHandlers = () => {
-    const context = store.getStore();
-    return context?.handlers || initialHandlers;
-  };
-
-  store.enterWith({ handlers: initialHandlers });
-
-  return {
-    listen() {
-      request = new Proxy(request, {
-        async apply(target, context, args) {
-          const [method, path] = args;
-
-          const handlers = getHandlers();
-          const mockedResponse = await handleRequest(
-            { method, path },
-            handlers,
-          );
-          return mockedResponse || Reflect.apply(target, context, args);
-        },
-      });
-    },
-    reset() {
-      store.enterWith({ handlers: initialHandlers });
-    },
-    use(...runtimeHandlers) {
-      const currentHandlers = getHandlers();
-      const nextHandlers = [...currentHandlers, ...runtimeHandlers];
-
-      store.enterWith({ handlers: nextHandlers });
-    },
-  };
-}
-
-async function handleRequest(request, handlers) {
-  const { method, path } = request;
-
-  return handlers.find((handler) => {
-    return handler[0] === method && handler[1] === path;
-  })?.[2];
-}
+import { setupServer, request } from "./setupServer";
 
 const server = setupServer([]);
 
 beforeAll(() => server.listen());
-afterEach(() => server.reset());
+/**
+ * @note Jest doesn't support `afterEach` in concurrent mode
+ * so you must call "server.reset()" before every test manually.
+ */
+// afterEach(() => server.reset());
 
 test.concurrent("uses initial handlers", async () => {
+  server.reset()
   expect(await request("GET", "/one")).toEqual(null);
   expect(await request("GET", "/two")).toEqual(null);
 });
 
 test.concurrent("adds two overrides", async () => {
+  server.reset()
   server.use(["GET", "/two", 202], ["GET", "/three", 3]);
   expect(await request("GET", "/one")).toEqual(null);
   expect(await request("GET", "/two")).toEqual(202);
@@ -67,17 +24,20 @@ test.concurrent("adds two overrides", async () => {
 });
 
 test.concurrent("adds one override", async () => {
+  server.reset()
   server.use(["GET", "/two", 2]);
   expect(await request("GET", "/two")).toEqual(2);
   expect(await request("POST", "/one")).toEqual(null);
 });
 
 test.concurrent("uses initial handlers after reset", async () => {
-  expect(await request("GET", "/one")).toEqual(null);
+  server.reset()
+  expect(await request("GET", "/one?a=1")).toEqual(null);
   expect(await request("GET", "/two")).toEqual(null);
 });
 
 test.concurrent("adds in-test overrides", async () => {
+  server.reset()
   expect(await request("GET", "/two")).toEqual(null);
 
   server.use(["GET", "/two", 123]);
